@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OB Pick Center
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.3
 // @description  Pick HC tracker - editable Plan HC & Actuals, auto-read from Rodeo, snip feature, light/dark mode, expandable workforce viewer with FANS messaging + direct FANS send with auto-retry
 // @author       ttuyen
 // @match        https://rodeo-iad.amazon.com/*/ExSD?yAxis=PROCESS_PATH*
@@ -42,7 +42,7 @@
     const FANS_API_URL = 'https://fans-iad.amazon.com/api/message/new';
 
     // Auto-update settings
-    const SCRIPT_VERSION = '3.2';
+    const SCRIPT_VERSION = '3.3';
     const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js';
     const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'pickHC_lastUpdateCheck';
@@ -191,6 +191,7 @@
             padding: 0;
             max-height: 75vh;
             overflow-y: auto;
+            position: relative;
         }
         #pick-hc-panel.collapsed .panel-body,
         #pick-hc-panel.collapsed .status-bar {
@@ -577,12 +578,12 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.85);
             z-index: 100000;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 6px;
+            border-radius: 0 0 6px 6px;
         }
         .hc-update-blocked-msg {
             background: #1a237e;
@@ -1655,9 +1656,11 @@
         const panel = document.getElementById('pick-hc-panel');
         if (!panel) return;
 
-        // Remove existing banner if any
+        // Remove existing banner/overlay if any
         const existing = panel.querySelector('.hc-update-banner');
         if (existing) existing.remove();
+        const existingOverlay = document.getElementById('hc-update-overlay');
+        if (existingOverlay) existingOverlay.remove();
 
         const banner = document.createElement('div');
         banner.className = 'hc-update-banner';
@@ -1681,7 +1684,6 @@
         // Block usage - overlay on panel body
         const panelBody = document.getElementById('hc-panel-body');
         if (panelBody) {
-            panelBody.style.position = 'relative';
             const overlay = document.createElement('div');
             overlay.className = 'hc-update-blocked-overlay';
             overlay.id = 'hc-update-overlay';
@@ -1704,7 +1706,7 @@
         });
 
         document.getElementById('hc-update-later-btn').addEventListener('click', () => {
-            // Remove banner and overlay but it will re-check next interval
+            // Remove banner and overlay
             banner.remove();
             const overlay = document.getElementById('hc-update-overlay');
             if (overlay) overlay.remove();
