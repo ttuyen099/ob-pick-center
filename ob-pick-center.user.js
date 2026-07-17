@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OB Pick Center
 // @namespace    http://tampermonkey.net/
-// @version      3.3
+// @version      3.4
 // @description  Pick HC tracker - editable Plan HC & Actuals, auto-read from Rodeo, snip feature, light/dark mode, expandable workforce viewer with FANS messaging + direct FANS send with auto-retry
 // @author       ttuyen
 // @match        https://rodeo-iad.amazon.com/*/ExSD?yAxis=PROCESS_PATH*
@@ -42,7 +42,7 @@
     const FANS_API_URL = 'https://fans-iad.amazon.com/api/message/new';
 
     // Auto-update settings
-    const SCRIPT_VERSION = '3.3';
+    const SCRIPT_VERSION = '3.4';
     const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js';
     const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'pickHC_lastUpdateCheck';
@@ -1247,6 +1247,7 @@
             <div class="status-bar">
                 <span><span class="status-dot disconnected" id="hc-status-dot"></span><span id="hc-status-text">Waiting...</span></span>
                 <span id="hc-refresh-time"></span>
+                <span id="hc-version-badge" style="font-size:9px; padding:1px 5px; border-radius:3px; background:#1b5e20; color:#a5d6a7;">✅ v${SCRIPT_VERSION}</span>
                 <span style="opacity:0.4; font-size:9px; font-style:italic;">created by ttuyen</span>
             </div>
             <div class="snip-toast" id="hc-snip-toast">📋 Copied to clipboard!</div>
@@ -1704,6 +1705,14 @@
         document.getElementById('hc-update-now-btn').addEventListener('click', () => {
             window.open(UPDATE_CHECK_URL, '_blank');
         });
+
+        // Update the version badge to show outdated
+        const versionBadge = document.getElementById('hc-version-badge');
+        if (versionBadge) {
+            versionBadge.textContent = `⚠️ v${SCRIPT_VERSION} → v${remoteVersion}`;
+            versionBadge.style.background = '#b71c1c';
+            versionBadge.style.color = '#ffcdd2';
+        }
 
         document.getElementById('hc-update-later-btn').addEventListener('click', () => {
             // Remove banner and overlay
