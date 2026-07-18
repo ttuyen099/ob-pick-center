@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OB Pick Center
 // @namespace    http://tampermonkey.net/
-// @version      3.4
+// @version      3.5
 // @description  Pick HC tracker - editable Plan HC & Actuals, auto-read from Rodeo, snip feature, light/dark mode, expandable workforce viewer with FANS messaging + direct FANS send with auto-retry
 // @author       ttuyen
 // @match        https://rodeo-iad.amazon.com/*/ExSD?yAxis=PROCESS_PATH*
@@ -15,6 +15,7 @@
 // @grant        GM.xmlHttpRequest
 // @connect      picking-console.na.picking.aft.a2z.com
 // @connect      fans-iad.amazon.com
+// @connect      localhost
 // @connect      raw.githubusercontent.com
 // @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
 // @updateURL    https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js
@@ -42,7 +43,7 @@
     const FANS_API_URL = 'https://fans-iad.amazon.com/api/message/new';
 
     // Auto-update settings
-    const SCRIPT_VERSION = '3.4';
+    const SCRIPT_VERSION = '3.5';
     const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js';
     const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'pickHC_lastUpdateCheck';
@@ -1804,4 +1805,46 @@
     } else {
         window.addEventListener('load', () => setTimeout(init, 1000));
     }
+
+    // ============================================================
+    // STAFFING DASHBOARD BRIDGE
+    // Pushes active picker data to the local Staffing Dashboard
+    // server every 30 seconds so it knows who's actively picking.
+    // ============================================================
+    const DASHBOARD_SERVER = 'http://localhost:8787';
+    const DASHBOARD_PUSH_INTERVAL = 30000;
+
+    function pushWorkforceToDashboard() {
+        const fcCode = GM_getValue(STORAGE_KEY_FC, FC_CODE);
+        const apiUrl = `https://picking-console.na.picking.aft.a2z.com/api/fcs/${fcCode}/workforce`;
+
+        gmXHR({
+            method: 'GET',
+            url: apiUrl,
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            onload: function(response) {
+                if (response.status === 200) {
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        const pickers = data.pickerStatusList || [];
+                        gmXHR({
+                            method: 'POST',
+                            url: `${DASHBOARD_SERVER}/api/update-workforce`,
+                            headers: { 'Content-Type': 'application/json' },
+                            data: JSON.stringify({ pickers: pickers }),
+                            onload: function(res) {
+                                if (res.status === 200) console.log('[Dashboard Bridge] Pushed ' + pickers.length + ' pickers');
+                            },
+                            onerror: function() {}
+                        });
+                    } catch(e) {}
+                }
+            },
+            onerror: function() {}
+        });
+    }
+
+    setInterval(pushWorkforceToDashboard, DASHBOARD_PUSH_INTERVAL);
+    setTimeout(pushWorkforceToDashboard, 5000);
+    // ============================================================
 })();
