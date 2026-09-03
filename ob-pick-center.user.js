@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         OB Pick Center
 // @namespace    http://tampermonkey.net/
-// @version      3.5
-// @description  Pick HC tracker - editable Plan HC & Actuals, auto-read from Rodeo, snip feature, light/dark mode, expandable workforce viewer with FANS messaging + direct FANS send with auto-retry
+// @version      3.6
+// @description  Pick HC tracker - editable Plan HC & Actuals, auto-read from Rodeo, snip feature, light/dark mode, expandable workforce viewer with FANS messaging + direct FANS send with auto-retry. Pushes live workforce (Total/Active/Inactive HC) to PickMatrix with configurable URL.
 // @author       ttuyen
 // @match        https://rodeo-iad.amazon.com/*/ExSD?yAxis=PROCESS_PATH*
 // @match        https://rodeo-dub.amazon.com/*/ExSD?yAxis=PROCESS_PATH*
@@ -13,9 +13,11 @@
 // @grant        GM_xmlHttpRequest
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
+// @grant        GM_registerMenuCommand
 // @connect      picking-console.na.picking.aft.a2z.com
 // @connect      fans-iad.amazon.com
 // @connect      localhost
+// @connect      127.0.0.1
 // @connect      raw.githubusercontent.com
 // @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
 // @updateURL    https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js
@@ -43,7 +45,7 @@
     const FANS_API_URL = 'https://fans-iad.amazon.com/api/message/new';
 
     // Auto-update settings
-    const SCRIPT_VERSION = '3.5';
+    const SCRIPT_VERSION = '3.6';
     const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js';
     const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'pickHC_lastUpdateCheck';
@@ -1808,11 +1810,20 @@
 
     // ============================================================
     // STAFFING DASHBOARD BRIDGE
-    // Pushes active picker data to the local Staffing Dashboard
-    // server every 30 seconds so it knows who's actively picking.
+    // Pushes the full workforce roster to the local PickMatrix / Staffing
+    // Dashboard every 30 seconds so it can compute Total/Active/Inactive HC.
+    // The base URL is configurable (Tampermonkey menu: "Set PickMatrix URL…").
     // ============================================================
-    const DASHBOARD_SERVER = 'http://localhost:8787';
+    const STORAGE_KEY_PICKMATRIX = 'pickHC_pickmatrixUrl';
+    const DASHBOARD_DEFAULT_URL = 'http://localhost:8787';
     const DASHBOARD_PUSH_INTERVAL = 30000;
+
+    function getDashboardUrl() {
+        let base = GM_getValue(STORAGE_KEY_PICKMATRIX, DASHBOARD_DEFAULT_URL) || DASHBOARD_DEFAULT_URL;
+        base = String(base).trim().replace(/\/+$/, '');
+        if (!/^https?:\/\//i.test(base)) base = 'http://' + base;
+        return base;
+    }
 
     function pushWorkforceToDashboard() {
         const fcCode = GM_getValue(STORAGE_KEY_FC, FC_CODE);
@@ -1826,10 +1837,21 @@
                 if (response.status === 200) {
                     try {
                         const data = JSON.parse(response.responseText);
-                        const pickers = data.pickerStatusList || [];
+                        const raw = data.pickerStatusList || [];
+                        // Attach an explicit status string alongside the console
+                        // `active` bool so PickMatrix buckets reliably.
+                        const pickers = raw.map(p => ({
+                            userId: p.userId || '',
+                            name: p.name || '',
+                            processPath: p.processPath || '',
+                            active: p.active === true,
+                            status: (p.active === true) ? 'Active' : 'Inactive',
+                            lastActivity: p.lastActivityTime,
+                            location: p.location || ''
+                        })).filter(p => p.userId && p.processPath);
                         gmXHR({
                             method: 'POST',
-                            url: `${DASHBOARD_SERVER}/api/update-workforce`,
+                            url: `${getDashboardUrl()}/api/update-workforce`,
                             headers: { 'Content-Type': 'application/json' },
                             data: JSON.stringify({ pickers: pickers }),
                             onload: function(res) {
@@ -1841,6 +1863,23 @@
                 }
             },
             onerror: function() {}
+        });
+    }
+
+    // Tampermonkey menu command to point the HC push at a non-default host/port.
+    if (typeof GM_registerMenuCommand !== 'undefined') {
+        GM_registerMenuCommand('Set PickMatrix URL…', () => {
+            const cur = GM_getValue(STORAGE_KEY_PICKMATRIX, DASHBOARD_DEFAULT_URL);
+            const next = prompt(
+                'PickMatrix dashboard base URL (host:port).\nDefault: ' + DASHBOARD_DEFAULT_URL,
+                cur
+            );
+            if (next && next.trim()) {
+                GM_setValue(STORAGE_KEY_PICKMATRIX, next.trim());
+                pushWorkforceToDashboard();
+                alert('PickMatrix URL set to: ' + next.trim() +
+                      '\nNote: non-localhost hosts also require a matching @connect grant.');
+            }
         });
     }
 

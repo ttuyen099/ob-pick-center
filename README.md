@@ -7,7 +7,7 @@ A Tampermonkey userscript for tracking OB Pick headcount with real-time Rodeo sy
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser
 2. Click the link below to install the script:
 
-   **[⬇️ Install OB Pick Center](https://raw.githubusercontent.com/ttuyen/ob-pick-center/main/ob-pick-center.user.js)**
+   **[⬇️ Install OB Pick Center](https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js)**
 
 3. Tampermonkey will open an install dialog — click **Install**
 
