@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OB Pick Center
 // @namespace    http://tampermonkey.net/
-// @version      3.6
+// @version      3.7
 // @description  Pick HC tracker - editable Plan HC & Actuals, auto-read from Rodeo, snip feature, light/dark mode, expandable workforce viewer with FANS messaging + direct FANS send with auto-retry. Pushes live workforce (Total/Active/Inactive HC) to PickMatrix with configurable URL.
 // @author       ttuyen
 // @match        https://rodeo-iad.amazon.com/*/ExSD?yAxis=PROCESS_PATH*
@@ -45,19 +45,43 @@
     const FANS_API_URL = 'https://fans-iad.amazon.com/api/message/new';
 
     // Auto-update settings
-    const SCRIPT_VERSION = '3.6';
+    const SCRIPT_VERSION = '3.7';
     const UPDATE_CHECK_URL = 'https://raw.githubusercontent.com/ttuyen099/ob-pick-center/main/ob-pick-center.user.js';
     const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000; // Check every hour
     const STORAGE_KEY_LAST_UPDATE_CHECK = 'pickHC_lastUpdateCheck';
     const STORAGE_KEY_SKIP_VERSION = 'pickHC_skipVersion';
 
-    // Extract FC code from URL (e.g., rodeo-iad.amazon.com/HOU8/ExSD...)
-    const FC_CODE = GM_getValue(STORAGE_KEY_FC, '') || (() => {
-        const match = window.location.pathname.match(/^\/([A-Z]{3}\d+)\//i);
-        return match ? match[1].toUpperCase() : 'HOU8';
-    })();
+    // ===== FC (site) detection =====
+    // The Rodeo URL is the source of truth for the site, e.g.
+    //   https://rodeo-iad.amazon.com/HOU8/ExSD?yAxis=PROCESS_PATH
+    // We read it LIVE (not once at load) so navigating to a different site's
+    // Rodeo page switches the add-on automatically — no manual typing needed.
+    // A stored value (STORAGE_KEY_FC) is only used as a fallback/override when
+    // the URL has no FC in it.
+    const STORAGE_KEY_FC_OVERRIDE = 'pickHC_fcOverride';  // manual override flag+value
 
-    const WORKFORCE_API_BASE = `https://picking-console.na.picking.aft.a2z.com/api/fcs/${FC_CODE}`;
+    function fcFromUrl() {
+        const m = window.location.pathname.match(/^\/([A-Z]{3}\d+)\//i);
+        return m ? m[1].toUpperCase() : '';
+    }
+
+    function getFcCode() {
+        // 1. Manual override (only if the user explicitly set one)
+        const override = (GM_getValue(STORAGE_KEY_FC_OVERRIDE, '') || '').trim().toUpperCase();
+        if (override) return override;
+        // 2. Live from the Rodeo URL
+        const fromUrl = fcFromUrl();
+        if (fromUrl) return fromUrl;
+        // 3. Last known stored value, then default
+        return (GM_getValue(STORAGE_KEY_FC, '') || 'HOU8').toUpperCase();
+    }
+
+    function workforceApiBase() {
+        return `https://picking-console.na.picking.aft.a2z.com/api/fcs/${getFcCode()}`;
+    }
+
+    // Keep a stored copy of the current URL-derived FC (handy for display/fallback).
+    (function persistUrlFc(){ const u = fcFromUrl(); if (u) GM_setValue(STORAGE_KEY_FC, u); })();
 
     // Theme definitions
     const THEMES = {
@@ -795,7 +819,7 @@
 
     function fetchWorkforceData(processPath) {
         return new Promise((resolve, reject) => {
-            const fcCode = GM_getValue(STORAGE_KEY_FC, FC_CODE);
+            const fcCode = getFcCode();
             const apiUrl = `https://picking-console.na.picking.aft.a2z.com/api/fcs/${fcCode}/process-paths/information`;
 
             gmXHR({
@@ -827,7 +851,7 @@
 
     function fetchPickerDetails(processPath) {
         return new Promise((resolve, reject) => {
-            const fcCode = GM_getValue(STORAGE_KEY_FC, FC_CODE);
+            const fcCode = getFcCode();
             const apiUrl = `https://picking-console.na.picking.aft.a2z.com/api/fcs/${fcCode}/workforce`;
 
             gmXHR({
@@ -1208,12 +1232,15 @@
         const panel = document.createElement('div');
         panel.id = 'pick-hc-panel';
 
-        const storedFc = GM_getValue(STORAGE_KEY_FC, FC_CODE);
+        // Show the current FC (auto-detected from the Rodeo URL). If a manual
+        // override is set, show that instead. Placeholder shows it's automatic.
+        const overrideFc = (GM_getValue(STORAGE_KEY_FC_OVERRIDE, '') || '').trim().toUpperCase();
+        const storedFc = getFcCode();
 
         panel.innerHTML = `
             <div class="panel-header" id="hc-drag-handle">
                 <h3>📋 OB Pick Center
-                    <input type="text" class="fc-code-input" id="hc-fc-input" value="${storedFc}" maxlength="5" title="FC Code (e.g. HOU8)" placeholder="FC">
+                    <input type="text" class="fc-code-input" id="hc-fc-input" value="${storedFc}" maxlength="5" title="Auto-detected from the Rodeo URL. Type an FC to override; clear it to go back to auto." placeholder="auto">
                 </h3>
                 <div class="btn-group">
                     <button id="hc-sync-btn" title="Toggle auto-sync from Rodeo">🔄</button>
@@ -1258,15 +1285,23 @@
 
         document.body.appendChild(panel);
 
-        // FC Code input handler
+        // FC Code input handler — sets a MANUAL OVERRIDE. Leave it matching the
+        // URL (or clear it) to use automatic URL-based detection.
         document.getElementById('hc-fc-input').addEventListener('change', (e) => {
             const val = e.target.value.trim().toUpperCase();
-            if (val.length >= 3) {
-                GM_setValue(STORAGE_KEY_FC, val);
-                // Clear workforce cache when FC changes
-                workforceData = {};
-                expandedPaths = {};
+            const urlFc = fcFromUrl();
+            if (!val || val === urlFc) {
+                // Empty or same as the URL -> no override, use auto-detect.
+                GM_setValue(STORAGE_KEY_FC_OVERRIDE, '');
+                e.target.value = getFcCode();
+            } else if (val.length >= 3) {
+                GM_setValue(STORAGE_KEY_FC_OVERRIDE, val);
             }
+            // Changing FC invalidates cached workforce/paths.
+            workforceData = {};
+            expandedPaths = {};
+            // Push immediately so the dashboard reflects the new FC right away.
+            try { pushWorkforceToDashboard(); } catch (_) {}
         });
 
         document.getElementById('hc-collapse-btn').addEventListener('click', () => {
@@ -1763,6 +1798,26 @@
         // Check for updates before anything else
         scheduleUpdateChecks();
 
+        // Keep the FC in sync with the Rodeo URL. Rodeo can change the URL
+        // without a full reload (SPA nav), so poll the derived FC and, when it
+        // changes (and no manual override is set), update the input, clear the
+        // cached workforce, and push the new site to the dashboard.
+        let _lastFc = getFcCode();
+        setInterval(() => {
+            const override = (GM_getValue(STORAGE_KEY_FC_OVERRIDE, '') || '').trim();
+            if (override) return;              // manual override wins; don't auto-change
+            const cur = getFcCode();
+            if (cur !== _lastFc) {
+                _lastFc = cur;
+                const input = document.getElementById('hc-fc-input');
+                if (input) input.value = cur;
+                workforceData = {};
+                expandedPaths = {};
+                try { pushWorkforceToDashboard(); } catch (_) {}
+                console.log('[OB Pick Center] Site auto-switched to', cur, 'from Rodeo URL');
+            }
+        }, 5000);
+
         // Load manual data first
         const manualActuals = loadActualsData();
         if (Object.keys(manualActuals).length > 0) {
@@ -1826,7 +1881,7 @@
     }
 
     function pushWorkforceToDashboard() {
-        const fcCode = GM_getValue(STORAGE_KEY_FC, FC_CODE);
+        const fcCode = getFcCode();
         const apiUrl = `https://picking-console.na.picking.aft.a2z.com/api/fcs/${fcCode}/workforce`;
 
         gmXHR({
@@ -1853,7 +1908,7 @@
                             method: 'POST',
                             url: `${getDashboardUrl()}/api/update-workforce`,
                             headers: { 'Content-Type': 'application/json' },
-                            data: JSON.stringify({ pickers: pickers }),
+                            data: JSON.stringify({ fc: fcCode, pickers: pickers }),
                             onload: function(res) {
                                 if (res.status === 200) console.log('[Dashboard Bridge] Pushed ' + pickers.length + ' pickers');
                             },
@@ -1880,6 +1935,15 @@
                 alert('PickMatrix URL set to: ' + next.trim() +
                       '\nNote: non-localhost hosts also require a matching @connect grant.');
             }
+        });
+        GM_registerMenuCommand('Reset FC to auto (use Rodeo URL)', () => {
+            GM_setValue(STORAGE_KEY_FC_OVERRIDE, '');
+            const input = document.getElementById('hc-fc-input');
+            if (input) input.value = getFcCode();
+            workforceData = {};
+            expandedPaths = {};
+            try { pushWorkforceToDashboard(); } catch (_) {}
+            alert('FC override cleared. Now auto-detecting from the Rodeo URL: ' + getFcCode());
         });
     }
 

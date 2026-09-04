@@ -1,4 +1,4 @@
-# OB Pick Center v3.6
+# OB Pick Center v3.7
 
 A Tampermonkey overlay for Rodeo that gives you real-time visibility into OB Pick headcount — all in one draggable panel.
 
@@ -77,8 +77,8 @@ Tracks **Plan HC vs. Actuals** for every process path, shows the delta at a glan
 |-----------|---------|
 | 🟢 Synced (13 paths) | Auto-sync is on and reading from Rodeo |
 | 🔴 Manual mode | Auto-sync is off, edit values manually |
-| ✅ v3.6 | You're on the latest version |
-| ⚠️ v3.6 → v3.7 | Update available |
+| ✅ v3.7 | You're on the latest version |
+| ⚠️ v3.7 → v3.8 | Update available |
 | Last refreshed: 3:35 AM | When data was last pulled |
 
 ---
